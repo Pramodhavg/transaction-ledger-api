@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import StrEnum
 from http import HTTPStatus
 from typing import Any
@@ -42,6 +43,45 @@ class AccountNotFoundError(AppError):
 
     def __init__(self, account_id: UUID) -> None:
         super().__init__(f"Account {account_id} was not found", {"account_id": str(account_id)})
+
+
+class DuplicateTransactionError(AppError):
+    """Same reference_id already used on this account: nothing new is written (idempotent retry)."""
+
+    status_code = HTTPStatus.CONFLICT
+    code = ErrorCode.DUPLICATE_TRANSACTION
+
+    def __init__(self, reference_id: str, existing: dict[str, Any]) -> None:
+        super().__init__(
+            f"A transaction with reference_id '{reference_id}' already exists for this account",
+            {"transaction": existing},
+        )
+
+
+class InsufficientBalanceError(AppError):
+    status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+    code = ErrorCode.INSUFFICIENT_BALANCE
+
+    def __init__(self, account_id: UUID, balance: Decimal, amount: Decimal) -> None:
+        super().__init__(
+            f"Insufficient balance: available {balance:.2f}, requested {amount:.2f}",
+            {
+                "account_id": str(account_id),
+                "balance": f"{balance:.2f}",
+                "requested_amount": f"{amount:.2f}",
+            },
+        )
+
+
+class BalanceLimitExceededError(AppError):
+    status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+    code = ErrorCode.BALANCE_LIMIT_EXCEEDED
+
+    def __init__(self, account_id: UUID, max_balance: Decimal) -> None:
+        super().__init__(
+            f"This credit would take the balance above the maximum of {max_balance:.2f}",
+            {"account_id": str(account_id), "max_balance": f"{max_balance:.2f}"},
+        )
 
 
 class ServiceUnavailableError(AppError):

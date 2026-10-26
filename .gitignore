@@ -13,6 +13,9 @@ htmlcov/
 # Local config (copy .env.example to .env if you need overrides)
 .env
 
+# Personal Claude Code settings
+.claude/settings.local.json
+
 # Editors / OS
 .vscode/
 .idea/
