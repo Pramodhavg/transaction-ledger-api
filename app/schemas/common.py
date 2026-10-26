@@ -4,6 +4,8 @@ from typing import Annotated, Any, Self
 
 from pydantic import BaseModel, PlainSerializer
 
+from app.core.errors import ErrorCode
+
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 
@@ -40,7 +42,7 @@ class Pagination(BaseModel):
 
 
 class ErrorBody(BaseModel):
-    code: str
+    code: ErrorCode
     message: str
     details: dict[str, Any] = {}
 

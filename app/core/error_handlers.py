@@ -7,6 +7,8 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import compile_path
 
 from app.core.errors import AppError, ErrorCode
 
@@ -56,6 +58,54 @@ async def handle_validation_error(_: Request, exc: RequestValidationError) -> JS
     return error_response(HTTPStatus.BAD_REQUEST, code, message, {"errors": errors})
 
 
+async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Framework-level errors (unknown route, wrong method) in our format instead of {"detail"}."""
+    route = f"{request.method} {request.url.path}"
+    details: dict[str, Any] = {}
+    headers = exc.headers
+    if exc.status_code == HTTPStatus.NOT_FOUND:
+        code, message = ErrorCode.NOT_FOUND, f"No endpoint matches {route}"
+    elif exc.status_code == HTTPStatus.METHOD_NOT_ALLOWED:
+        code, message = ErrorCode.METHOD_NOT_ALLOWED, f"Method not allowed: {route}"
+        allowed = _allowed_methods(request) or _split_allow_header(exc.headers)
+        details["allowed_methods"] = allowed
+        headers = {"Allow": ", ".join(allowed)}
+    elif exc.status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
+        code, message = ErrorCode.VALIDATION_ERROR, str(exc.detail)
+    else:
+        code, message = ErrorCode.INTERNAL_ERROR, "An unexpected error occurred"
+    return error_response(exc.status_code, code, message, details, headers=headers)
+
+
+def _allowed_methods(request: Request) -> list[str]:
+    # The router only reports the methods of the first route on the path (e.g. POST but not
+    # GET on /transactions), so read every method for this path from the API's own contract.
+    methods: set[str] = set()
+    for path, operations in request.app.openapi()["paths"].items():
+        path_regex, _, _ = compile_path(path)
+        if path_regex.match(request.url.path):
+            methods |= {method.upper() for method in operations}
+    return sorted(methods)
+
+
+def _split_allow_header(headers: dict[str, str] | None) -> list[str]:
+    allow = (headers or {}).get("Allow", "")
+    return [method.strip() for method in allow.split(",") if method.strip()]
+
+
+async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
+    """Last resort: a generic 500 that never exposes internals (no stack trace, no SQL).
+
+    Starlette re-raises the exception after this handler, so the server still logs the full
+    traceback for operators.
+    """
+    return error_response(
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        ErrorCode.INTERNAL_ERROR,
+        "An unexpected error occurred. Please try again later.",
+    )
+
+
 def _code_for(error: dict[str, Any]) -> ErrorCode:
     if error["type"] == "extra_forbidden":
         return ErrorCode.VALIDATION_ERROR
@@ -81,3 +131,5 @@ def _describe(error: dict[str, Any]) -> dict[str, Any]:
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AppError, handle_app_error)
     app.add_exception_handler(RequestValidationError, handle_validation_error)
+    app.add_exception_handler(StarletteHTTPException, handle_http_exception)
+    app.add_exception_handler(Exception, handle_unexpected_error)

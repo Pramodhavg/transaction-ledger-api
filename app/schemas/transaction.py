@@ -49,7 +49,19 @@ Description = Annotated[
 
 
 class TransactionCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "type": "credit",
+                    "amount": "100.00",
+                    "reference_id": "deposit-001",
+                    "description": "Salary",
+                }
+            ]
+        },
+    )
 
     type: TransactionType
     amount: Amount

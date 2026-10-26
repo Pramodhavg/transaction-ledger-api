@@ -16,7 +16,7 @@ AccountName = Annotated[
 class AccountCreate(BaseModel):
     # extra="forbid": sending `balance`, `id` or `created_at` is rejected with a 400 instead of
     # being silently ignored. The balance always starts at 0 and only changes via transactions.
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"name": "Alice Johnson"}]})
 
     name: AccountName
 
