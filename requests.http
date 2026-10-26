@@ -1,0 +1,153 @@
+# Transaction Ledger API: manual walkthrough
+#
+# VS Code: install the "REST Client" extension (humao.rest-client), start the API with
+# `docker compose up --build`, then click "Send Request" above each request, top to bottom.
+# Later requests reuse ids from earlier responses, e.g. {{alice.response.body.$.id}}.
+
+@baseUrl = http://localhost:8000/api/v1
+
+### Health check
+GET {{baseUrl}}/health
+
+### Create account Alice  →  201, balance "0.00"
+# @name alice
+POST {{baseUrl}}/accounts
+Content-Type: application/json
+
+{"name": "Alice Johnson"}
+
+### Create account Bob
+# @name bob
+POST {{baseUrl}}/accounts
+Content-Type: application/json
+
+{"name": "Bob Smith"}
+
+### Client cannot set the balance  →  400 VALIDATION_ERROR
+POST {{baseUrl}}/accounts
+Content-Type: application/json
+
+{"name": "Mallory", "balance": 1000000}
+
+### Credit Alice 100  →  201, balance_after "100.00"
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "credit", "amount": "100.00", "reference_id": "deposit-001", "description": "Salary"}
+
+### Same reference again  →  409 DUPLICATE_TRANSACTION, original returned, balance unchanged
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "credit", "amount": "100.00", "reference_id": "deposit-001"}
+
+### Credit 50 (amount as a JSON number)  →  balance_after "150.00"
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "credit", "amount": 50, "reference_id": "deposit-002"}
+
+### Debit 30  →  balance_after "120.00"
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "debit", "amount": "30.00", "reference_id": "withdrawal-001"}
+
+### Overdraft  →  422 INSUFFICIENT_BALANCE, nothing stored
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "debit", "amount": "1000.00", "reference_id": "withdrawal-002"}
+
+### Debit 20  →  balance_after "100.00"  (spec: 0 +100 +50 -30 -20 = 100)
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "debit", "amount": "20.00", "reference_id": "withdrawal-003"}
+
+### Balance  →  "100.00"
+GET {{baseUrl}}/accounts/{{alice.response.body.$.id}}/balance
+
+### Invalid amount (3 decimals)  →  400 INVALID_AMOUNT
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "credit", "amount": 10.005, "reference_id": "bad-amount"}
+
+### Invalid type  →  400 INVALID_TRANSACTION_TYPE
+POST {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+Content-Type: application/json
+
+{"type": "refund", "amount": "10.00", "reference_id": "bad-type"}
+
+### History: newest first, both types
+GET {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+
+### History: debits only, 2 per page
+GET {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions?type=debit&page=1&limit=2
+
+### History: page past the end  →  200, empty data, correct metadata
+GET {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions?page=99
+
+### History: invalid limit  →  400 INVALID_PAGINATION
+GET {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions?limit=500
+
+### Transfer 30 Alice → Bob  →  201, Alice "70.00", Bob "30.00"
+POST {{baseUrl}}/transfers
+Content-Type: application/json
+
+{
+  "from_account_id": "{{alice.response.body.$.id}}",
+  "to_account_id": "{{bob.response.body.$.id}}",
+  "amount": "30.00",
+  "reference_id": "rent-2026-10",
+  "description": "October rent"
+}
+
+### Same transfer reference again  →  409 DUPLICATE_TRANSFER, no money moved
+POST {{baseUrl}}/transfers
+Content-Type: application/json
+
+{
+  "from_account_id": "{{alice.response.body.$.id}}",
+  "to_account_id": "{{bob.response.body.$.id}}",
+  "amount": "30.00",
+  "reference_id": "rent-2026-10"
+}
+
+### Transfer more than the balance  →  422 INSUFFICIENT_BALANCE
+POST {{baseUrl}}/transfers
+Content-Type: application/json
+
+{
+  "from_account_id": "{{alice.response.body.$.id}}",
+  "to_account_id": "{{bob.response.body.$.id}}",
+  "amount": "5000.00",
+  "reference_id": "too-much"
+}
+
+### Transfer to the same account  →  400 SAME_ACCOUNT_TRANSFER
+POST {{baseUrl}}/transfers
+Content-Type: application/json
+
+{
+  "from_account_id": "{{alice.response.body.$.id}}",
+  "to_account_id": "{{alice.response.body.$.id}}",
+  "amount": "1.00",
+  "reference_id": "self"
+}
+
+### Bob's history shows the transfer's credit leg (reference transfer:<id>:credit)
+GET {{baseUrl}}/accounts/{{bob.response.body.$.id}}/transactions
+
+### Unknown account  →  404 ACCOUNT_NOT_FOUND
+GET {{baseUrl}}/accounts/00000000-0000-0000-0000-000000000000
+
+### Malformed account id  →  400 INVALID_ACCOUNT_ID
+GET {{baseUrl}}/accounts/not-a-uuid
+
+### Transactions cannot be deleted  →  405 METHOD_NOT_ALLOWED (Allow: GET, POST)
+DELETE {{baseUrl}}/accounts/{{alice.response.body.$.id}}/transactions
+
+### Unknown route  →  404 NOT_FOUND in the standard error format
+GET {{baseUrl}}/does-not-exist
