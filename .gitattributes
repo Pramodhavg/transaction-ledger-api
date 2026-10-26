@@ -1,0 +1,3 @@
+# Normalise line endings to LF so files behave the same inside Linux containers,
+# even when the repo is cloned on Windows.
+* text=auto eol=lf

@@ -1,0 +1,36 @@
+name: transaction-ledger
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ledger}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
+      POSTGRES_DB: ${POSTGRES_DB:-ledger}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # The port is deliberately not published to the host, so it can never clash with a
+    # local Postgres. Inspect the DB with: docker compose exec db psql -U ledger -d ledger
+    healthcheck:
+      # Probe over TCP: on first boot Postgres runs a temporary socket-only server while it
+      # initialises, and a socket probe would report "ready" too early.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ledger}:${POSTGRES_PASSWORD:-ledger}@db:5432/${POSTGRES_DB:-ledger}
+      TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ledger}:${POSTGRES_PASSWORD:-ledger}@db:5432/${POSTGRES_DB:-ledger}_test
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

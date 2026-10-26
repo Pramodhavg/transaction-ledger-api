@@ -1,0 +1,14 @@
+.git
+.gitignore
+.gitattributes
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.env
+.vscode
+.idea
+docs
+*.md
+requests.http
