@@ -208,4 +208,4 @@ Route handlers only translate HTTP to and from service calls. Every business rul
 
 ## How this was built
 
-I used [Claude Code](https://claude.com/claude-code) as a pair programmer for the code, tests and documentation. I specified the technical decisions up front: the stack, the schema and constraints, the locking and idempotency strategy, and the error contract. I reviewed and verified every phase before moving on. I understand every decision documented here and can explain the reasoning behind it.
+I planned the design with Claude (chat) and used [Claude Code](https://claude.com/claude-code) as a pair programmer for code, tests and documentation. I reviewed and verified every phase, and I can explain every design decision — see [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md).
