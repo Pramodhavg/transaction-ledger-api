@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.core.money import MAX_TRANSACTION_AMOUNT
-from app.schemas.common import Money
+from app.schemas.common import Money, Pagination
 
 # Reserved for the two ledger legs of a transfer ("transfer:<id>:debit" / ":credit"), so a
 # client reference can never collide with one.
@@ -78,3 +78,8 @@ class TransactionResponse(BaseModel):
     )
     transfer_id: UUID | None = Field(description="Set when this entry is one leg of a transfer.")
     created_at: datetime
+
+
+class TransactionListResponse(BaseModel):
+    data: list[TransactionResponse]
+    pagination: Pagination

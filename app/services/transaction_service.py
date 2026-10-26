@@ -2,7 +2,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session
 
@@ -54,6 +54,41 @@ def create_transaction(db: Session, account_id: UUID, data: TransactionCreate) -
         if not is_numeric_overflow(exc):
             raise
         raise BalanceLimitExceededError(account_id, MAX_BALANCE) from exc
+
+
+def list_transactions(
+    db: Session,
+    account_id: UUID,
+    type_: TransactionType | None,
+    page: int,
+    limit: int,
+) -> tuple[list[Transaction], int]:
+    """Returns one page of an account's history (newest first) and the total match count."""
+    with db.begin():
+        # One snapshot for both queries, so the total always agrees with the page returned.
+        db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+
+        # An unknown account is a 404, not an empty history.
+        account_service.get_account(db, account_id)
+
+        filters = [Transaction.account_id == account_id]
+        if type_ is not None:
+            filters.append(Transaction.type == type_.value)
+
+        total = db.scalar(select(func.count()).select_from(Transaction).where(*filters)) or 0
+        offset = (page - 1) * limit
+        if offset >= total:
+            return [], total
+
+        stmt = (
+            select(Transaction)
+            .where(*filters)
+            # id breaks ties between equal timestamps, so pages never overlap or skip rows.
+            .order_by(Transaction.created_at.desc(), Transaction.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(db.scalars(stmt)), total
 
 
 def post_entry(
