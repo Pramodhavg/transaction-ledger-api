@@ -58,6 +58,29 @@ class DuplicateTransactionError(AppError):
         )
 
 
+class DuplicateTransferError(AppError):
+    """Same reference_id already used for a transfer from this account: nothing is moved again."""
+
+    status_code = HTTPStatus.CONFLICT
+    code = ErrorCode.DUPLICATE_TRANSFER
+
+    def __init__(self, reference_id: str, existing: dict[str, Any]) -> None:
+        super().__init__(
+            f"A transfer with reference_id '{reference_id}' already exists for this source account",
+            {"transfer": existing},
+        )
+
+
+class SameAccountTransferError(AppError):
+    status_code = HTTPStatus.BAD_REQUEST
+    code = ErrorCode.SAME_ACCOUNT_TRANSFER
+
+    def __init__(self, account_id: UUID) -> None:
+        super().__init__(
+            "Source and destination accounts must be different", {"account_id": str(account_id)}
+        )
+
+
 class InsufficientBalanceError(AppError):
     status_code = HTTPStatus.UNPROCESSABLE_ENTITY
     code = ErrorCode.INSUFFICIENT_BALANCE

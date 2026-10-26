@@ -13,6 +13,7 @@ router = APIRouter(tags=["Health"])
 @router.get(
     "/health",
     summary="Health check",
+    response_description="The API is running and the database is reachable.",
     responses=error_responses(ErrorCode.SERVICE_UNAVAILABLE),
 )
 def health(db: DbSession) -> HealthResponse:

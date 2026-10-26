@@ -2,9 +2,10 @@ import math
 from decimal import Decimal
 from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer, StringConstraints
 
 from app.core.errors import ErrorCode
+from app.core.money import MAX_TRANSACTION_AMOUNT
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
@@ -19,14 +20,30 @@ def _format_money(value: Decimal) -> str:
 # lose precision; a string keeps the exact value.
 Money = Annotated[Decimal, PlainSerializer(_format_money, return_type=str)]
 
+# Money in requests: a JSON number or string, never converted through float.
+Amount = Annotated[
+    Decimal,
+    Field(
+        gt=0,
+        le=MAX_TRANSACTION_AMOUNT,
+        decimal_places=2,
+        description="Positive amount with at most 2 decimal places (JSON number or string).",
+        examples=["100.00"],
+    ),
+]
+
+ReferenceId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+Description = Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)]
+
 
 class Pagination(BaseModel):
-    page: int
-    page_size: int
-    total_records: int
-    total_pages: int
-    has_next: bool
-    has_previous: bool
+    page: int = Field(examples=[1])
+    page_size: int = Field(examples=[20])
+    total_records: int = Field(examples=[42])
+    total_pages: int = Field(examples=[3])
+    has_next: bool = Field(examples=[True])
+    has_previous: bool = Field(examples=[False])
 
     @classmethod
     def build(cls, page: int, page_size: int, total_records: int) -> Self:

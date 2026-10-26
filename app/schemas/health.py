@@ -1,8 +1,6 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"examples": [{"status": "ok", "database": "ok"}]})
-
-    status: str
-    database: str
+    status: str = Field(examples=["ok"])
+    database: str = Field(examples=["ok"])

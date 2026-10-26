@@ -1,13 +1,11 @@
 from datetime import datetime
-from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.money import MAX_TRANSACTION_AMOUNT
-from app.schemas.common import Money, Pagination
+from app.schemas import examples
+from app.schemas.common import Amount, Description, Money, Pagination, ReferenceId
 
 # Reserved for the two ledger legs of a transfer ("transfer:<id>:debit" / ":credit"), so a
 # client reference can never collide with one.
@@ -17,35 +15,6 @@ TRANSFER_REFERENCE_PREFIX = "transfer:"
 class TransactionType(StrEnum):
     CREDIT = "credit"
     DEBIT = "debit"
-
-
-# Accepted as a JSON number or string; never converted through float.
-Amount = Annotated[
-    Decimal,
-    Field(
-        gt=0,
-        le=MAX_TRANSACTION_AMOUNT,
-        decimal_places=2,
-        description="Positive amount with at most 2 decimal places (number or string).",
-        examples=["100.00"],
-    ),
-]
-
-ReferenceId = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
-    Field(
-        description="Client-supplied unique reference for this transaction within the account. "
-        "Re-sending the same reference returns 409 and never creates a second transaction.",
-        examples=["deposit-001"],
-    ),
-]
-
-Description = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, max_length=255),
-    Field(description="Optional free-text note (max 255 characters).", examples=["Salary"]),
-]
 
 
 class TransactionCreate(BaseModel):
@@ -65,8 +34,14 @@ class TransactionCreate(BaseModel):
 
     type: TransactionType
     amount: Amount
-    reference_id: ReferenceId
-    description: Description | None = None
+    reference_id: ReferenceId = Field(
+        description="Unique per account. Re-sending it returns 409 and never creates a second "
+        "transaction; other accounts may reuse it.",
+        examples=["deposit-001"],
+    )
+    description: Description | None = Field(
+        default=None, description="Optional note (max 255 characters).", examples=["Salary"]
+    )
 
     @field_validator("reference_id")
     @classmethod
@@ -79,17 +54,19 @@ class TransactionCreate(BaseModel):
 class TransactionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
-    account_id: UUID
-    type: TransactionType
+    id: UUID = Field(examples=[examples.TRANSACTION_ID])
+    account_id: UUID = Field(examples=[examples.ACCOUNT_ID])
+    type: TransactionType = Field(examples=["credit"])
     amount: Money = Field(examples=["100.00"])
-    description: str | None
-    reference_id: str
+    description: str | None = Field(examples=["Salary"])
+    reference_id: str = Field(examples=["deposit-001"])
     balance_after: Money = Field(
         description="Account balance immediately after this transaction.", examples=["150.00"]
     )
-    transfer_id: UUID | None = Field(description="Set when this entry is one leg of a transfer.")
-    created_at: datetime
+    transfer_id: UUID | None = Field(
+        description="Set when this entry is one leg of a transfer.", examples=[None]
+    )
+    created_at: datetime = Field(examples=[examples.TIMESTAMP])
 
 
 class TransactionListResponse(BaseModel):

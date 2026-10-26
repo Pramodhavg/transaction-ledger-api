@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, status
 
 from app.api.deps import DbSession
-from app.api.openapi import error_responses
+from app.api.openapi import INVALID_ACCOUNT_ID_IN_PATH, error_responses, field_error
 from app.core.errors import ErrorCode
 from app.schemas.account import AccountCreate, AccountResponse, BalanceResponse
 from app.services import account_service
@@ -15,8 +15,19 @@ router = APIRouter(prefix="/accounts", tags=["Accounts"])
     "",
     status_code=status.HTTP_201_CREATED,
     summary="Create an account",
-    response_description="The new account, always with a balance of 0.00.",
-    responses=error_responses(ErrorCode.VALIDATION_ERROR),
+    response_description="The created account. Its balance always starts at 0.00.",
+    responses=error_responses(
+        field_error(
+            ErrorCode.VALIDATION_ERROR, "name", "body", "Field required", name="Missing name"
+        ),
+        field_error(
+            ErrorCode.VALIDATION_ERROR,
+            "balance",
+            "body",
+            "Unknown or read-only field; it cannot be set by the client",
+            name="Client tried to set the balance",
+        ),
+    ),
 )
 def create_account(payload: AccountCreate, db: DbSession) -> AccountResponse:
     """Creates an account for the given holder name.
@@ -31,7 +42,8 @@ def create_account(payload: AccountCreate, db: DbSession) -> AccountResponse:
 @router.get(
     "/{account_id}",
     summary="Get account details",
-    responses=error_responses(ErrorCode.INVALID_ACCOUNT_ID, ErrorCode.ACCOUNT_NOT_FOUND),
+    response_description="The account, including its current balance.",
+    responses=error_responses(INVALID_ACCOUNT_ID_IN_PATH, ErrorCode.ACCOUNT_NOT_FOUND),
 )
 def get_account(account_id: UUID, db: DbSession) -> AccountResponse:
     """Returns the account's id, holder name, current balance and creation time."""
@@ -42,7 +54,8 @@ def get_account(account_id: UUID, db: DbSession) -> AccountResponse:
 @router.get(
     "/{account_id}/balance",
     summary="Get account balance",
-    responses=error_responses(ErrorCode.INVALID_ACCOUNT_ID, ErrorCode.ACCOUNT_NOT_FOUND),
+    response_description="The account's current balance.",
+    responses=error_responses(INVALID_ACCOUNT_ID_IN_PATH, ErrorCode.ACCOUNT_NOT_FOUND),
 )
 def get_balance(account_id: UUID, db: DbSession) -> BalanceResponse:
     """Returns the current balance. It always equals the sum of credits minus debits."""

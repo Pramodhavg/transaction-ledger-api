@@ -28,6 +28,7 @@ transaction history, and transfer money between accounts.
 OPENAPI_TAGS = [
     {"name": "Accounts", "description": "Create accounts and read balances."},
     {"name": "Transactions", "description": "Post credits/debits and read history."},
+    {"name": "Transfers", "description": "Move money between two accounts atomically."},
     {"name": "Health", "description": "Liveness and database connectivity."},
 ]
 

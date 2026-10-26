@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query, status
 
 from app.api.deps import DbSession
-from app.api.openapi import error_responses
+from app.api.openapi import INVALID_ACCOUNT_ID_IN_PATH, error_responses, field_error
 from app.core.errors import ErrorCode
 from app.schemas.common import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Pagination
 from app.schemas.transaction import (
@@ -22,12 +22,19 @@ router = APIRouter(prefix="/accounts/{account_id}/transactions", tags=["Transact
     "",
     status_code=status.HTTP_201_CREATED,
     summary="Create a credit or debit",
-    response_description="The new ledger entry, including the resulting balance.",
+    response_description="The created transaction, including the balance right after it.",
     responses=error_responses(
-        ErrorCode.VALIDATION_ERROR,
-        ErrorCode.INVALID_ACCOUNT_ID,
-        ErrorCode.INVALID_TRANSACTION_TYPE,
-        ErrorCode.INVALID_AMOUNT,
+        field_error(ErrorCode.VALIDATION_ERROR, "reference_id", "body", "Field required"),
+        INVALID_ACCOUNT_ID_IN_PATH,
+        field_error(
+            ErrorCode.INVALID_TRANSACTION_TYPE, "type", "body", "Input should be 'credit' or 'debit'"
+        ),
+        field_error(
+            ErrorCode.INVALID_AMOUNT,
+            "amount",
+            "body",
+            "Decimal input should have no more than 2 decimal places",
+        ),
         ErrorCode.ACCOUNT_NOT_FOUND,
         ErrorCode.DUPLICATE_TRANSACTION,
         ErrorCode.INSUFFICIENT_BALANCE,
@@ -53,10 +60,21 @@ def create_transaction(
 @router.get(
     "",
     summary="Get transaction history",
+    response_description="One page of transactions, newest first, with pagination metadata.",
     responses=error_responses(
-        ErrorCode.INVALID_ACCOUNT_ID,
-        ErrorCode.INVALID_PAGINATION,
-        ErrorCode.INVALID_TRANSACTION_TYPE,
+        INVALID_ACCOUNT_ID_IN_PATH,
+        field_error(
+            ErrorCode.INVALID_PAGINATION,
+            "limit",
+            "query",
+            "Input should be less than or equal to 100",
+        ),
+        field_error(
+            ErrorCode.INVALID_TRANSACTION_TYPE,
+            "type",
+            "query",
+            "Input should be 'credit' or 'debit'",
+        ),
         ErrorCode.ACCOUNT_NOT_FOUND,
     ),
 )

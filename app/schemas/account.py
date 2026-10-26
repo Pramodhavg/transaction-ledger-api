@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.schemas import examples
 from app.schemas.common import Money
 
 AccountName = Annotated[
@@ -24,12 +25,12 @@ class AccountCreate(BaseModel):
 class AccountResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
-    name: str
+    id: UUID = Field(examples=[examples.ACCOUNT_ID])
+    name: str = Field(examples=["Alice Johnson"])
     balance: Money = Field(examples=["0.00"])
-    created_at: datetime
+    created_at: datetime = Field(examples=[examples.TIMESTAMP])
 
 
 class BalanceResponse(BaseModel):
-    account_id: UUID
+    account_id: UUID = Field(examples=[examples.ACCOUNT_ID])
     balance: Money = Field(examples=["150.00"])

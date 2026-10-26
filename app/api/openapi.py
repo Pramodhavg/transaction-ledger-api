@@ -2,104 +2,118 @@
 default 422 entries (this API reports validation errors as 400 in its own format)."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from decimal import Decimal
 from http import HTTPStatus
 from typing import Any
+from uuid import UUID
 
 from fastapi import FastAPI
 
-from app.core.errors import ErrorCode
+from app.core.errors import (
+    AccountNotFoundError,
+    AppError,
+    BalanceLimitExceededError,
+    DuplicateTransactionError,
+    DuplicateTransferError,
+    ErrorCode,
+    InsufficientBalanceError,
+    SameAccountTransferError,
+    ServiceUnavailableError,
+)
+from app.core.money import MAX_BALANCE
+from app.schemas import examples
 from app.schemas.common import ErrorResponse
 
-EXAMPLE_ACCOUNT_ID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+INVALID_UUID_MESSAGE = "Input should be a valid UUID, invalid character: found `n` at 0"
 
 
-def _field_error(field: str, location: str, message: str) -> tuple[str, dict[str, Any]]:
-    return f"{field}: {message}", {
-        "errors": [{"field": field, "location": location, "message": message}]
-    }
+@dataclass(frozen=True)
+class ErrorExample:
+    status: HTTPStatus
+    code: ErrorCode
+    message: str
+    details: dict[str, Any]
+    name: str  # label in Swagger's "Examples" dropdown
 
 
-# status, message, details: one realistic example per error code.
-_ERROR_EXAMPLES: dict[ErrorCode, tuple[HTTPStatus, str, dict[str, Any]]] = {
-    ErrorCode.VALIDATION_ERROR: (
-        HTTPStatus.BAD_REQUEST,
-        *_field_error("reference_id", "body", "Field required"),
-    ),
-    ErrorCode.INVALID_ACCOUNT_ID: (
-        HTTPStatus.BAD_REQUEST,
-        *_field_error("account_id", "path", "Input should be a valid UUID"),
-    ),
-    ErrorCode.INVALID_PAGINATION: (
-        HTTPStatus.BAD_REQUEST,
-        *_field_error("limit", "query", "Input should be less than or equal to 100"),
-    ),
-    ErrorCode.INVALID_TRANSACTION_TYPE: (
-        HTTPStatus.BAD_REQUEST,
-        *_field_error("type", "body", "Input should be 'credit' or 'debit'"),
-    ),
-    ErrorCode.INVALID_AMOUNT: (
-        HTTPStatus.BAD_REQUEST,
-        *_field_error("amount", "body", "Input should be greater than 0"),
-    ),
-    ErrorCode.SAME_ACCOUNT_TRANSFER: (
-        HTTPStatus.BAD_REQUEST,
-        "Source and destination accounts must be different",
-        {"account_id": EXAMPLE_ACCOUNT_ID},
-    ),
-    ErrorCode.ACCOUNT_NOT_FOUND: (
-        HTTPStatus.NOT_FOUND,
-        f"Account {EXAMPLE_ACCOUNT_ID} was not found",
-        {"account_id": EXAMPLE_ACCOUNT_ID},
-    ),
-    ErrorCode.DUPLICATE_TRANSACTION: (
-        HTTPStatus.CONFLICT,
-        "A transaction with reference_id 'deposit-001' already exists for this account",
-        {"transaction": {"reference_id": "deposit-001", "amount": "100.00", "...": "..."}},
-    ),
-    ErrorCode.DUPLICATE_TRANSFER: (
-        HTTPStatus.CONFLICT,
-        "A transfer with reference_id 'rent-2026-10' already exists for this source account",
-        {"transfer": {"reference_id": "rent-2026-10", "amount": "30.00", "...": "..."}},
-    ),
-    ErrorCode.INSUFFICIENT_BALANCE: (
-        HTTPStatus.UNPROCESSABLE_ENTITY,
-        "Insufficient balance: available 100.00, requested 150.00",
-        {"account_id": EXAMPLE_ACCOUNT_ID, "balance": "100.00", "requested_amount": "150.00"},
-    ),
-    ErrorCode.BALANCE_LIMIT_EXCEEDED: (
-        HTTPStatus.UNPROCESSABLE_ENTITY,
-        "This credit would take the balance above the maximum of 9999999999999999.99",
-        {"account_id": EXAMPLE_ACCOUNT_ID, "max_balance": "9999999999999999.99"},
-    ),
-    ErrorCode.SERVICE_UNAVAILABLE: (
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        "Database is unreachable",
-        {},
-    ),
+def field_error(
+    code: ErrorCode, field: str, location: str, message: str, name: str | None = None
+) -> ErrorExample:
+    """A request-validation example. It must name a field that exists on the route."""
+    return ErrorExample(
+        status=HTTPStatus.BAD_REQUEST,
+        code=code,
+        message=f"{field}: {message}",
+        details={"errors": [{"field": field, "location": location, "message": message}]},
+        name=name or code,
+    )
+
+
+def _from_error(error: AppError) -> ErrorExample:
+    # Built from the real exception classes, so documented messages cannot drift from the API.
+    return ErrorExample(
+        HTTPStatus(error.status_code), error.code, error.message, error.details, error.code
+    )
+
+
+_ACCOUNT = UUID(examples.ACCOUNT_ID)
+
+# Defaults only for errors that do not depend on a route's fields. Field errors must be passed
+# explicitly with field_error(), so every route documents its own fields.
+_DEFAULT_EXAMPLES: dict[ErrorCode, ErrorExample] = {
+    example.code: example
+    for example in map(
+        _from_error,
+        [
+            AccountNotFoundError(_ACCOUNT),
+            SameAccountTransferError(_ACCOUNT),
+            DuplicateTransactionError("deposit-001", examples.TRANSACTION),
+            DuplicateTransferError("rent-2026-10", examples.TRANSFER),
+            InsufficientBalanceError(_ACCOUNT, Decimal("100.00"), Decimal("150.00")),
+            BalanceLimitExceededError(_ACCOUNT, MAX_BALANCE),
+            ServiceUnavailableError("Database is unreachable"),
+        ],
+    )
 }
 
+INVALID_ACCOUNT_ID_IN_PATH = field_error(
+    ErrorCode.INVALID_ACCOUNT_ID, "account_id", "path", INVALID_UUID_MESSAGE
+)
 
-def error_responses(*codes: ErrorCode) -> dict[int | str, dict[str, Any]]:
-    """Builds the `responses=` argument of a route: one entry per status, one example per code."""
-    grouped: dict[HTTPStatus, list[ErrorCode]] = {}
-    for code in codes:
-        grouped.setdefault(_ERROR_EXAMPLES[code][0], []).append(code)
-    return {
-        int(status): {
+
+def error_responses(*items: ErrorCode | ErrorExample) -> dict[int | str, dict[str, Any]]:
+    """Builds a route's `responses=`: one entry per status, one Swagger example per item."""
+    grouped: dict[HTTPStatus, list[ErrorExample]] = {}
+    for item in items:
+        example = item if isinstance(item, ErrorExample) else _DEFAULT_EXAMPLES[item]
+        grouped.setdefault(example.status, []).append(example)
+
+    responses: dict[int | str, dict[str, Any]] = {}
+    for status, group in grouped.items():
+        codes = dict.fromkeys(example.code for example in group)  # unique, in order
+        responses[int(status)] = {
             "model": ErrorResponse,
-            "description": f"{status.phrase}: " + ", ".join(f"`{code}`" for code in group),
-            "content": {"application/json": {"examples": {code: _example(code) for code in group}}},
+            "description": f"{status.phrase}: " + ", ".join(f"`{code}`" for code in codes),
+            "content": {
+                "application/json": {
+                    "examples": {
+                        example.name: {
+                            "summary": example.name,
+                            "value": {
+                                "error": {
+                                    "code": example.code,
+                                    "message": example.message,
+                                    "details": example.details,
+                                }
+                            },
+                        }
+                        for example in group
+                    }
+                }
+            },
         }
-        for status, group in grouped.items()
-    }
-
-
-def _example(code: ErrorCode) -> dict[str, Any]:
-    _, message, details = _ERROR_EXAMPLES[code]
-    return {
-        "summary": code,
-        "value": {"error": {"code": code, "message": message, "details": details}},
-    }
+    return responses
 
 
 def strip_default_validation_responses(app: FastAPI) -> None:
